@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Secret Chat</title>
+  <style>
+    /* body { margin: 0; padding-bottom: 3rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
+      #form { background: rgba(0, 0, 0, 0.15); padding: 0.25rem; position: fixed; bottom: 0; left: 0; right: 0; display: flex; height: 3rem; box-sizing: border-box; backdrop-filter: blur(10px); }
+      #input { border: none; padding: 0 1rem; flex-grow: 1; border-radius: 2rem; margin: 0.25rem; }
+      #input:focus { outline: none; }
+      #form > button { background: #333; border: none; padding: 0 1rem; margin: 0.25rem; border-radius: 3px; outline: none; color: #fff; }
+
+      #messages { list-style-type: none; margin: 0; padding: 0; }
+      #messages > li { padding: 0.5rem 1rem; }
+      #messages > li:nth-child(odd) { background: #efefef; } */
+  </style>
+</head>
+
+<body>
+
+  <h2>Secret Chat</h2>
+  <h5>Insira seu nome de usuário abaixo</h5>
+
+  <input id="username-input" name="username" type="text"></input>
+  <button id="start-btn">Entrar</button>
+
+  <!-- <script src="/socket.io/socket.io.js"></script> -->
+
+  <script>
+    // var socket = io();
+
+    var user = document.getElementById('username-input');
+    var startBtn = document.getElementById('start-btn');
+
+    startBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+
+
+      let xhr = new XMLHttpRequest();
+      xhr.open("POST", "/join");
+
+      xhr.setRequestHeader("Accept", "application/json");
+      xhr.setRequestHeader("Content-Type", "application/json");
+
+      xhr.onload = () => {
+        console.log(xhr.response);
+
+        localStorage.setItem("username", user.value);
+        setTimeout(() => window.location.replace("/lobby"), 1000);
+      }
+
+      let data = `{"username": "${user.value}"}`;
+
+      try {
+        xhr.send(data);
+      } catch {
+        console.log('usuário já existe');
+      }
+
+      e.stopPropagation();
+    });
+
+  </script>
+</body>
+
+</html>

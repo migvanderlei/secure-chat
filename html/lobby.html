@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Secret Chat</title>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/seedrandom/3.0.5/seedrandom.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <!-- <style>
+      body { margin: 0; padding-bottom: 3rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
+      #form { background: rgba(0, 0, 0, 0.15); padding: 0.25rem; position: fixed; bottom: 0; left: 0; right: 0; display: flex; height: 3rem; box-sizing: border-box; backdrop-filter: blur(10px); }
+      #input { border: none; padding: 0 1rem; flex-grow: 1; border-radius: 2rem; margin: 0.25rem; }
+      #input:focus { outline: none; }
+      #form > button { background: #333; border: none; padding: 0 1rem; margin: 0.25rem; border-radius: 3px; outline: none; color: #fff; }
+
+      #messages { list-style-type: none; margin: 0; padding: 0; }
+      #messages > li { padding: 0.5rem 1rem; }
+      #messages > li:nth-child(odd) { background: #efefef; }
+    </style> -->
+</head>
+
+<body>
+
+  <h2>Secret Chat</h2>
+  <h3 id="name-header"></h3>
+  <h5>Escolha um usuário abaixo para começar a conversar</h5>
+
+  <select id="users-dropdown"></select>
+  <button id="connect-btn">Pedir para conectar</button>
+
+
+  <script src="/socket.io/socket.io.js"></script>
+
+  <script>
+    var socket = io();
+
+    // o nome do usuário
+    var username = localStorage.getItem("username");
+
+    var nameHeader = document.getElementById('name-header')
+    nameHeader.innerText = `Bem vindo(a) ${username}`
+
+    var dropdown = document.getElementById('users-dropdown')
+
+    // obtém os usuários para o dropdown e preenche a lista
+    let xhr = new XMLHttpRequest();
+    xhr.open("GET", "/users", false);
+
+    xhr.onload = () => {
+      dropdown.innerHTML = "";
+
+      var firstOpt = document.createElement('option');
+      firstOpt.setAttribute('selected', 'true');
+      firstOpt.innerHTML = 'Selecione';
+      firstOpt.disabled = true
+
+      dropdown.appendChild(firstOpt)
+      for (var user of JSON.parse(xhr.response)) {
+        if (user != username) {
+          var opt = document.createElement('option');
+          opt.setAttribute('value', user);
+          opt.innerHTML = user
+
+          dropdown.appendChild(opt);
+        }
+      }
+    }
+
+    xhr.send();
+
+    // listener do botão de conectar
+    // quando clicado, envia uma requisição de conecão via socketIO
+    var connectBtn = document.getElementById('connect-btn');
+
+    connectBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      var dropdown = document.getElementById('users-dropdown');
+      var selectedUser = dropdown.value;
+      console.log(selectedUser)
+      socket.emit('connectionRequest', { to: selectedUser, from: username });
+      e.stopPropagation();
+    })
+
+    // recebeu a mensagem para autorizar a request
+    // valida o destinatário da mensagem
+    socket.on('authorizeRequest', function (data) {
+      if (data.to == username) {
+        window.focus();
+        // sobe o modal com a confirmação
+        Swal.fire({
+          title: 'Pedido de conexão',
+          text: `Deseja trocar mensagens com ${data.from}? Vocês estarão em uma sala privada`,
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonColor: '#3085d6',
+          confirmButtonText: 'Sim.',
+          cancelButtonText: 'Não.'
+        }).then((result) => {
+          if (result.isConfirmed) {
+            // inicia o processo de troca de chaves (quando recebeu e aceitou o pedido)
+            loading()
+            socket.emit('acceptConnection', data);
+
+            getPublicBaseNumbers().then((publicBaseNumbers) => {
+              processDiffieHellman(publicBaseNumbers, data.from, username)
+            })
+          }
+        })
+      }
+    });
+
+
+    socket.on('publicNumberReceived', function (data) {
+      if (data.to == username) {
+        var secretNumber = localStorage.getItem("secretNumber");
+        var otherUserPublicNumber = data.publicNumber
+        var p = data.p
+        console.log(username, data)
+        console.log(username, 'otherUserPublicNumber', otherUserPublicNumber, 'secretNumber', secretNumber)
+        var secretSharedNumber = power(otherUserPublicNumber, secretNumber, p)
+        console.log(username, secretSharedNumber)
+        var key = getKey(secretSharedNumber)
+
+        console.log(username, key)
+        localStorage.setItem("key", key)
+
+        window.location.replace('/chat')
+      }
+    })
+
+    socket.on('connectionAccepted', function (data) {
+      // inicia o processo de troca de chaves (quando fez o pedido e ele foi aceito)
+      if (data.from == username) {
+        loading()
+        getPublicBaseNumbers().then((publicBaseNumbers) => {
+          processDiffieHellman(publicBaseNumbers, data.to, username)
+        })
+      }
+    })
+
+    // modal de carregamento
+    function loading() {
+      Swal.fire({
+        title: 'Aguarde',
+        html: 'Em breve vocês poderão se conectar.',
+        timer: 2000,
+        timerProgressBar: true,
+        didOpen: () => {
+          Swal.showLoading()
+        }
+      })
+    }
+
+    // retorna os números públicos base do Diffie-Hellman
+    function getPublicBaseNumbers() {
+      return new Promise(function (resolve, reject) {
+        let xhr = new XMLHttpRequest();
+        xhr.open("GET", "/publicValues", false);
+        xhr.onload = function () {
+          var status = xhr.status;
+          if (status == 200) {
+            resolve(JSON.parse(xhr.response));
+          } else {
+            reject(status);
+          }
+        };
+        xhr.send();
+      })
+    }
+
+    // gera um número privado
+    function getPrivateNumber() {
+      const minNumber = 1;
+      const maxNumber = 10;
+      return Math.floor(Math.random() * (maxNumber + 1) + minNumber);
+    }
+
+    function power(a, b, p) {
+      if (b == 1)
+        return a;
+      else
+        return ((Math.pow(a, b)) % p);
+    }
+
+    function getKey(number) {
+      var myRandom = new Math.seedrandom(number);
+      // console.log('random 32', myRandom.int32())
+
+      const int32Number = Math.abs(myRandom.int32())
+
+      return int32Number.toString(2).padStart(32, '0').slice(0, 32);
+    }
+
+    function processDiffieHellman(publicBaseNumbers, to, from) {
+      const { p, g } = publicBaseNumbers
+      const secretNumber = getPrivateNumber()
+
+      localStorage.setItem("secretNumber", secretNumber);
+      const publicNumber = power(g, secretNumber, p)
+      console.log(from, 'secretNumber', secretNumber, 'publicNumber', publicNumber)
+
+      localStorage.setItem("publicNumber", publicNumber);
+
+      socket.emit('sendPublicNumber', { to: to, from: from, publicNumber: publicNumber, p: p })
+    }
+  </script>
+</body>
+
+</html>
